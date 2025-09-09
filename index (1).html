@@ -1,0 +1,341 @@
+
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Demand Review Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root{
+      --gold:#C9A244;
+      --ink:#0E2A47;
+      --coffee:#6B4E3D;
+      --bg:#ffffff;
+      --muted:#f4f4f6;
+      --ok:#2e7d32;
+      --bad:#c62828;
+    }
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:#222;margin:0;padding:0}
+    header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    h1{font-size:20px;margin:0;color:var(--ink)}
+    .pill{background:var(--muted);border-radius:999px;padding:8px 12px;font-size:12px}
+    .wrap{padding:18px;max-width:1300px;margin:0 auto}
+    .grid{display:grid;gap:16px}
+    .g-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .g-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .card{background:#fff;border:1px solid #eee;border-radius:16px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.03)}
+    .card h2{font-size:14px;margin:0 0 6px 0;color:var(--gold);font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+    .kpi{display:flex;align-items:baseline;gap:10px}
+    .kpi .val{font-size:28px;font-weight:700;color:#111}
+    .kpi .unit{color:#666;font-size:12px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    select{padding:8px 10px;border:1px solid #ddd;border-radius:10px;background:#fff;min-width:160px}
+    .foot{padding:8px 20px;color:#777;font-size:12px}
+    .hide{display:none!important}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Demand Review Dashboard</h1>
+    <span class="pill">Actual = тёмно-синий, Forecast = коричневый, Budget = золотой</span>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <h2>Фильтры</h2>
+      <div class="controls">
+        <select id="region"><option value="">Region: All</option></select>
+        <select id="country"><option value="">Country: All</option></select>
+        <select id="customer"><option value="">Customer: All</option></select>
+        <select id="category"><option value="">Category: All</option></select>
+        <select id="brand"><option value="">Brand: All</option></select>
+      </div>
+    </div>
+
+    <section class="grid g-4">
+      <div class="grid g-4"></div>
+    </section>
+
+    <section class="grid g-4">
+      <div class="grid g-3">
+        <div class="card"><h2>KPI • Accuracy</h2><div class="kpi"><div id="kpi-acc" class="val">–</div><div class="unit">%</div></div></div>
+        <div class="card"><h2>KPI • Service Level</h2><div class="kpi"><div id="kpi-sl" class="val">–</div><div class="unit">%</div></div></div>
+        <div class="card"><h2>KPI • Rev Var vs Budget</h2><div class="kpi"><div id="kpi-var" class="val">–</div><div class="unit">%</div></div></div>
+        <div class="card"><h2>KPI • GM%</h2><div class="kpi"><div id="kpi-gm" class="val">–</div><div class="unit">%</div></div></div>
+      </div>
+    </section>
+
+    <section class="grid g-2" style="margin-top:12px;">
+      <div class="card">
+        <h2>Revenue: Actual vs Forecast vs Budget</h2>
+        <div id="rev-line" style="height:360px"></div>
+      </div>
+      <div class="card" id="map-card">
+        <h2>Карта по странам (Revenue / Service Level)</h2>
+        <div id="map" style="height:360px"></div>
+      </div>
+    </section>
+
+    <section class="grid g-2" style="margin-top:12px;">
+      <div class="card">
+        <h2>Accuracy Decay (по версиям)</h2>
+        <div id="acc-line" style="height:300px"></div>
+      </div>
+      <div class="card">
+        <h2>Bias по категориям</h2>
+        <div id="bias-cat" style="height:300px"></div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:12px;">
+      <h2>Heatmap: Bias % по клиентам</h2>
+      <div id="bias-heat" style="height:480px"></div>
+    </section>
+  </div>
+
+  <div class="foot">Theme: заголовки — золото (#C9A244). Actual — тёмно-синий, Forecast — коричневый, Budget — золотой.</div>
+
+  <script>
+    const state = {data:[], filters:{region:"",country:"",customer:"",category:"",brand:""}};
+
+    function fmtPct(x){
+      if(x===null||x===undefined||isNaN(x)) return "–";
+      return (Math.round(x*10)/10).toFixed(1);
+    }
+    function sum(arr){return arr.reduce((a,b)=>a+(+b||0),0)}
+    function avg(arr){return arr.length? sum(arr)/arr.length : 0}
+
+    function applyFilters(rows){
+      const f = state.filters;
+      return rows.filter(r=>{
+        return (!f.region || (r.region||"")==f.region) &&
+               (!f.country || (r.country||"")==f.country) &&
+               (!f.customer || (r.customer||"")==f.customer) &&
+               (!f.category || (r.category||"")==f.category) &&
+               (!f.brand || (r.brand||"")==f.brand);
+      });
+    }
+
+    function getUnique(rows, key){
+      return Array.from(new Set(rows.map(r=>r[key]).filter(Boolean))).sort();
+    }
+
+    function updateFilters(){
+      const rows = state.data;
+      for (const [id,key] of [["region","region"],["country","country"],["customer","customer"],["category","category"],["brand","brand"]]){
+        const el = document.getElementById(id);
+        const selected = state.filters[id];
+        const opts = ["", ...getUnique(rows, key)];
+        el.innerHTML = "";
+        opts.forEach(v=>{
+          const o = document.createElement("option");
+          o.value = v;
+          o.textContent = (v ? (id.charAt(0).toUpperCase()+id.slice(1))+": "+v : id.charAt(0).toUpperCase()+id.slice(1)+": All");
+          if(v===selected) o.selected = true;
+          el.appendChild(o);
+        });
+        el.onchange = (e)=>{ state.filters[id]=e.target.value; render(); };
+      }
+    }
+
+    function parseNum(v){
+      if(v===null||v===undefined||v==="") return null;
+      const n = +v;
+      return isNaN(n) ? null : n;
+    }
+
+    function renderKPIs(rows){
+      const accCandidates = rows.map(r=>parseNum(r.accuracy_pct))
+        .filter(v=>v!==null);
+      const accAuto = rows.map(r=>parseNum(r.accuracy_pct_auto)).filter(v=>v!==null);
+      const acc = accCandidates.length? avg(accCandidates) : (accAuto.length? avg(accAuto): null);
+
+      const sl = (function(){
+        const arr = rows.map(r=>parseNum(r.service_level_pct)).filter(v=>v!==null);
+        return arr.length? avg(arr): null;
+      })();
+
+      const varPct = (function(){
+        const arr = rows.map(r=>parseNum(r.revenue_var_pct_vs_budget)).filter(v=>v!==null);
+        if(arr.length) return avg(arr);
+        // Fallback compute from revenue & budget
+        const x = rows.filter(r=>parseNum(r.revenue)!==null && parseNum(r.budget_revenue)!==null);
+        if(!x.length) return null;
+        const rev = sum(x.map(r=>parseNum(r.revenue)));
+        const bud = sum(x.map(r=>parseNum(r.budget_revenue)));
+        if(!bud) return null;
+        return (rev-bud)/bud*100;
+      })();
+
+      const gm = (function(){
+        const arr = rows.map(r=>parseNum(r.gm_pct)).filter(v=>v!==null);
+        return arr.length? avg(arr): null;
+      })();
+
+      document.getElementById("kpi-acc").textContent = fmtPct(acc);
+      document.getElementById("kpi-sl").textContent = fmtPct(sl);
+      document.getElementById("kpi-var").textContent = fmtPct(varPct);
+      document.getElementById("kpi-gm").textContent = fmtPct(gm);
+    }
+
+    function groupBy(arr, key){
+      const m = new Map();
+      arr.forEach(r=>{
+        const k = r[key]||"";
+        if(!m.has(k)) m.set(k, []);
+        m.get(k).push(r);
+      });
+      return m;
+    }
+
+    function sortByYM(vals){
+      // expects YYYY-MM strings
+      return Array.from(new Set(vals.filter(Boolean))).sort();
+    }
+
+    function renderRevLine(rows){
+      const byYM = groupBy(rows, "yearmonth");
+      const ym = sortByYM(Array.from(byYM.keys()));
+
+      function series(field){
+        return ym.map(m=>{
+          const arr = (byYM.get(m)||[]).map(r=>parseNum(r[field])).filter(v=>v!==null);
+          return arr.length? sum(arr): null;
+        });
+      }
+      const rev = series("revenue");
+      const fc  = series("forecast_revenue");
+      const bud = series("budget_revenue");
+
+      const traces = [];
+      if(rev.some(v=>v!==null)) traces.push({x:ym, y:rev, name:"Actual", type:"scatter", mode:"lines+markers", line:{color:"#0E2A47"}});
+      if(fc.some(v=>v!==null))  traces.push({x:ym, y:fc, name:"Forecast", type:"scatter", mode:"lines+markers", line:{color:"#6B4E3D"}});
+      if(bud.some(v=>v!==null)) traces.push({x:ym, y:bud, name:"Budget", type:"scatter", mode:"lines+markers", line:{color:"#C9A244"}});
+
+      const layout = {margin:{l:40,r:10,t:10,b:40},legend:{orientation:"h"},xaxis:{type:"category"},yaxis:{title:"Revenue"}}
+      Plotly.newPlot("rev-line", traces, layout, {displayModeBar:false,responsive:true});
+    }
+
+    async function renderMap(rows){
+      const hasCountry = rows.some(r=>r.country);
+      if(!hasCountry){
+        document.getElementById("map-card").classList.add("hide");
+        return;
+      } else {
+        document.getElementById("map-card").classList.remove("hide");
+      }
+      // Aggregate by country
+      const byC = groupBy(rows, "country");
+      const countries = Array.from(byC.keys()).filter(Boolean);
+      const rev = countries.map(c=>{
+        const arr = (byC.get(c)||[]).map(r=>parseNum(r.revenue)).filter(v=>v!==null);
+        return arr.length? sum(arr): 0;
+      });
+      const sl = countries.map(c=>{
+        const arr = (byC.get(c)||[]).map(r=>parseNum(r.service_level_pct)).filter(v=>v!==null);
+        return arr.length? avg(arr): null;
+      });
+
+      const trace = {
+        type:"choropleth",
+        locationmode:"country names",
+        locations:countries,
+        z: sl.map(v=>v===null?0:v),
+        text: countries.map((c,i)=>`${c}<br>Revenue: ${rev[i].toLocaleString()}<br>Service Level: ${sl[i]===null?"–":fmtPct(sl[i])+"%"}`),
+        colorbar:{title:"Service %"},
+        colorscale:"YlGnBu"
+      };
+      const layout = {margin:{l:10,r:10,t:10,b:0}};
+      Plotly.newPlot("map", [trace], layout, {displayModeBar:false,responsive:true});
+    }
+
+    function renderAccLine(rows){
+      // If have version_month, show lines by version
+      const hasVer = rows.some(r=>r.version_month);
+      const by = hasVer ? groupBy(rows,"version_month") : new Map([["", rows]]);
+      const traces = [];
+      by.forEach((vals,key)=>{
+        const byYM = groupBy(vals,"yearmonth");
+        const ym = sortByYM(Array.from(byYM.keys()));
+        const acc = ym.map(m=>{
+          const r = byYM.get(m)||[];
+          const a = r.map(x=>parseNum(x.accuracy_pct)).filter(v=>v!==null);
+          const aa = r.map(x=>parseNum(x.accuracy_pct_auto)).filter(v=>v!==null);
+          const v = a.length? avg(a) : (aa.length? avg(aa): null);
+          return v;
+        });
+        if(acc.some(v=>v!==null)){
+          traces.push({x:ym,y:acc,name: key||"Accuracy", type:"scatter", mode:"lines"});
+        }
+      });
+      const layout = {margin:{l:40,r:10,t:10,b:40},legend:{orientation:"h"},yaxis:{title:"Accuracy %"},xaxis:{type:"category"}}
+      Plotly.newPlot("acc-line", traces, layout, {displayModeBar:false,responsive:true});
+    }
+
+    function renderBiasByCategory(rows){
+      const byC = groupBy(rows, "category");
+      const cats = Array.from(byC.keys()).filter(Boolean);
+      const vals = cats.map(c=>{
+        const arr = (byC.get(c)||[]);
+        const b = arr.map(r=>parseNum(r.bias_pct)).filter(v=>v!==null);
+        const ba = arr.map(r=>parseNum(r.bias_pct_auto)).filter(v=>v!==null);
+        const v = b.length? avg(b) : (ba.length? avg(ba): null);
+        return v;
+      });
+      const categories = [], series = [];
+      cats.forEach((c,i)=>{
+        if(vals[i]!==null){ categories.push(c); series.push(vals[i]); }
+      });
+      const trace = {x:categories, y:series, type:"bar", marker:{color:"#6B4E3D"}};
+      const layout = {margin:{l:40,r:10,t:10,b:80},xaxis:{tickangle:-30},yaxis:{title:"Bias %"}};
+      Plotly.newPlot("bias-cat",[trace],layout,{displayModeBar:false,responsive:true});
+    }
+
+    function renderBiasHeat(rows){
+      const byCust = groupBy(rows,"customer");
+      const customers = Array.from(byCust.keys()).filter(Boolean).sort();
+      const ymSet = new Set(rows.map(r=>r.yearmonth).filter(Boolean));
+      const months = Array.from(ymSet).sort();
+
+      const z = customers.map(c=>{
+        const byYM = groupBy(byCust.get(c)||[],"yearmonth");
+        return months.map(m=>{
+          const r=(byYM.get(m)||[]);
+          const b=r.map(x=>parseNum(x.bias_pct)).filter(v=>v!==null);
+          const ba=r.map(x=>parseNum(x.bias_pct_auto)).filter(v=>v!==null);
+          const v = b.length? avg(b) : (ba.length? avg(ba): null);
+          return v===null? 0 : v;
+        });
+      });
+
+      const trace = {
+        z, x:months, y:customers, type:"heatmap", colorscale:"RdBu", reversescale:true,
+        colorbar:{title:"Bias %"},
+        zmid:0
+      };
+      const layout = {margin:{l:120,r:20,t:10,b:60}};
+      Plotly.newPlot("bias-heat",[trace],layout,{displayModeBar:false,responsive:true});
+    }
+
+    function render(){
+      const filtered = applyFilters(state.data);
+      renderKPIs(filtered);
+      renderRevLine(filtered);
+      renderMap(filtered);
+      renderAccLine(filtered);
+      renderBiasByCategory(filtered);
+      renderBiasHeat(filtered);
+    }
+
+    async function init(){
+      const res = await fetch("./data.json");
+      const rows = await res.json();
+      state.data = rows;
+      updateFilters();
+      render();
+    }
+    init();
+  </script>
+</body>
+</html>
