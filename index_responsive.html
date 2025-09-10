@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Demand Review Dashboard — Inline (Responsive)</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root{--gold:#C9A244;--ink:#0E2A47;--coffee:#6B4E3D;--muted:#f4f4f6}
+    *{box-sizing:border-box}
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;color:#222;background:#fff}
+    header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    h1{margin:0;font-size:20px;color:var(--ink)}
+    .pill{background:var(--muted);border-radius:999px;padding:8px 12px;font-size:12px}
+    .wrap{padding:18px;max-width:1300px;margin:0 auto}
+    .grid{display:grid;gap:16px}
+    .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    @media(max-width:1200px){.g3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:980px){.g2,.g3{grid-template-columns:1fr}}
+    .card{background:#fff;border:1px solid #eee;border-radius:16px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.03)}
+    .card h2{font-size:14px;margin:0 0 6px;color:var(--gold);text-transform:uppercase;letter-spacing:.3px}
+    .kpi{display:flex;gap:10px;align-items:baseline}
+    .kpi .val{font-size:28px;font-weight:800}
+    .kpi .u{font-size:12px;color:#666}
+    .ctrls{display:flex;gap:8px;flex-wrap:wrap}
+    select{padding:8px 10px;border:1px solid #ddd;border-radius:10px;min-width:160px}
+    @media(max-width:640px){
+      .wrap{padding:12px}
+      .ctrls{flex-direction:column}
+      select{min-width:unset;width:100%}
+      .kpi .val{font-size:22px}
+      header{padding:12px}
+    }
+    .h360{height:clamp(220px,40vh,380px)}
+    .h300{height:clamp(200px,35vh,320px)}
+    .h460{height:clamp(240px,45vh,480px)}
+    .hide{display:none!important}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Demand Review Dashboard</h1>
+    <span class="pill">Данные встроены • без fetch</span>
+    <span class="pill">Responsive</span>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <h2>Фильтры</h2>
+      <div class="ctrls">
+        <select id="region"><option value="">Region: All</option></select>
+        <select id="country"><option value="">Country: All</option></select>
+        <select id="customer"><option value="">Customer: All</option></select>
+        <select id="category"><option value="">Category: All</option></select>
+        <select id="brand"><option value="">Brand: All</option></select>
+      </div>
+      <div id="dbg" style="margin-top:6px;color:#666;font-size:12px"></div>
+    </div>
+
+    <div class="grid g3" style="margin-top:12px">
+      <div class="card"><h2>KPI • Accuracy</h2><div class="kpi"><div id="k-acc" class="val">–</div><div class="u">%</div></div></div>
+      <div class="card"><h2>KPI • Service Level</h2><div class="kpi"><div id="k-sl" class="val">–</div><div class="u">%</div></div></div>
+      <div class="card"><h2>KPI • Rev Var vs Budget</h2><div class="kpi"><div id="k-var" class="val">–</div><div class="u">%</div></div></div>
+    </div>
+
+    <div class="grid g2" style="margin-top:12px">
+      <div class="card">
+        <h2>Revenue: Actual vs Forecast vs Budget</h2>
+        <div id="c-rev" class="h360"></div>
+      </div>
+      <div class="card" id="card-map">
+        <h2>Карта по странам (Revenue / Service Level)</h2>
+        <div id="c-map" class="h360"></div>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:12px">
+      <div class="card">
+        <h2>Accuracy Decay (по версиям)</h2>
+        <div id="c-acc" class="h300"></div>
+      </div>
+      <div class="card">
+        <h2>Bias по категориям</h2>
+        <div id="c-bias" class="h300"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h2>Heatmap: Bias % по клиентам</h2>
+      <div id="c-heat" class="h460"></div>
+    </div>
+  </div>
+
+  <script>
+    const DATA = [{"sku": "JAN", "__sheet__": "Forecast Accuracy"}, {"sku": "FEB", "__sheet__": "Forecast Accuracy"}, {"sku": "MAR", "__sheet__": "Forecast Accuracy"}, {"sku": "APR", "__sheet__": "Forecast Accuracy"}, {"sku": "MAY", "__sheet__": "Forecast Accuracy"}, {"sku": "JUN", "__sheet__": "Forecast Accuracy"}, {"sku": "Reason", "__sheet__": "Forecast Accuracy"}, {"sku": "Late Sales Input", "__sheet__": "Forecast Accuracy"}, {"sku": "Promotions Not Captured", "__sheet__": "Forecast Accuracy"}, {"sku": "Inaccurate Base Forecast", "__sheet__": "Forecast Accuracy"}, {"sku": "Incorrect Seasonality", "__sheet__": "Forecast Accuracy"}, {"sku": "Unexpected Market Events", "__sheet__": "Forecast Accuracy"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Full-Year Forecast"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Service Level"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Stock Projection"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}, {"sku": "", "__sheet__": "Orders vs Forecast"}];
+
+    const ST = {raw: DATA, flt: {region:"",country:"",customer:"",category:"",brand:""}};
+    const num = v => (v==null||v===""||isNaN(+v))?null:+v;
+    const sum = a => a.reduce((x,y)=>x+(+y||0),0);
+    const avg = a => a.length? sum(a)/a.length : null;
+    const uniq = a => Array.from(new Set(a.filter(Boolean))).sort();
+    const by   = (a,k) => a.reduce((m,r)=>((m[r[k]||""]=m[r[k]||""]||[]).push(r),m),{});
+    const ymSort = list => uniq(list).sort();
+    const fmtPct = x => x==null ? "–" : (Math.round(x*10)/10).toFixed(1);
+
+    function applyFilters(rows){
+      const f = ST.flt;
+      return rows.filter(r =>
+        (!f.region   || (r.region||"")==f.region) &&
+        (!f.country  || (r.country||"")==f.country) &&
+        (!f.customer || (r.customer||"")==f.customer) &&
+        (!f.category || (r.category||"")==f.category) &&
+        (!f.brand    || (r.brand||"")==f.brand)
+      );
+    }
+    function setSel(id, arr, label){
+      const el = document.getElementById(id);
+      const val = ST.flt[id];
+      el.innerHTML = "";
+      const all = document.createElement("option"); all.value=""; all.textContent = label+": All"; el.appendChild(all);
+      arr.forEach(v=>{ const o=document.createElement("option"); o.value=v; o.textContent=label+": "+v; if(v===val) o.selected=true; el.appendChild(o); });
+      el.onchange = e => { ST.flt[id] = e.target.value; render(); };
+    }
+
+    function renderKPIs(rows){
+      const acc = (()=>{ const a=rows.map(r=>num(r.accuracy_pct)).filter(v=>v!=null); return a.length? avg(a) : null; })();
+      const sl  = (()=>{ const a=rows.map(r=>num(r.service_level_pct)).filter(v=>v!=null); return a.length? avg(a) : null; })();
+      const varp = (()=>{
+        const a=rows.map(r=>num(r.revenue_var_pct_vs_budget)).filter(v=>v!=null);
+        if(a.length) return avg(a);
+        const x = rows.filter(r=>num(r.revenue)!=null && num(r.budget_revenue)!=null);
+        if(!x.length) return null;
+        const rev=sum(x.map(r=>num(r.revenue))); const bud=sum(x.map(r=>num(r.budget_revenue)));
+        return bud ? (rev-bud)/bud*100 : null;
+      })();
+      document.getElementById("k-acc").textContent = fmtPct(acc);
+      document.getElementById("k-sl").textContent  = fmtPct(sl);
+      document.getElementById("k-var").textContent = fmtPct(varp);
+    }
+
+    function renderRev(rows){
+      const g=by(rows,"yearmonth");
+      const ym=ymSort(Object.keys(g));
+      const s=f=>ym.map(m=>{ const arr=(g[m]||[]).map(r=>num(r[f])).filter(v=>v!=null); return arr.length? sum(arr): null; });
+      const act=s("revenue"), fc=s("forecast_revenue"), bud=s("budget_revenue");
+      const traces=[];
+      if(act.some(v=>v!=null)) traces.push({x:ym,y:act,name:"Actual",type:"scatter",mode:"lines+markers",line:{color:"#0E2A47"}});
+      if(fc.some(v=>v!=null))  traces.push({x:ym,y:fc,name:"Forecast",type:"scatter",mode:"lines+markers",line:{color:"#6B4E3D"}});
+      if(bud.some(v=>v!=null)) traces.push({x:ym,y:bud,name:"Budget",type:"scatter",mode:"lines+markers",line:{color:"#C9A244"}});
+      Plotly.newPlot("c-rev", traces, {margin:{l:40,r:10,t:10,b:40},legend:{orientation:"h"},xaxis:{type:"category"},yaxis:{title:"Revenue"}}, {displayModeBar:false,responsive:true});
+    }
+
+    function renderMap(rows){
+      const has = rows.some(r=>r.country);
+      document.getElementById("card-map").classList.toggle("hide", !has);
+      if(!has) return;
+      const gb=by(rows,"country");
+      const countries=Object.keys(gb).filter(Boolean).sort();
+      const rev=countries.map(c=>{ const arr=gb[c].map(r=>num(r.revenue)).filter(v=>v!=null); return arr.length? sum(arr):0; });
+      const sl=countries.map(c=>{ const arr=gb[c].map(r=>num(r.service_level_pct)).filter(v=>v!=null); return arr.length? avg(arr):null; });
+      Plotly.newPlot("c-map", [{type:"choropleth", locationmode:"country names", locations:countries, z:sl.map(v=>v==null?0:v),
+        text:countries.map((c,i)=>`${c}<br>Revenue: ${rev[i].toLocaleString()}<br>Service Level: ${sl[i]==null?"–":fmtPct(sl[i])+"%"}`),
+        colorbar:{title:"Service %"}, colorscale:"YlGnBu"}],
+        {margin:{l:10,r:10,t:10,b:0}}, {displayModeBar:false,responsive:true}
+      );
+    }
+
+    function renderAcc(rows){
+      const hasV = rows.some(r=>r.version_month);
+      const groups = hasV ? by(rows,"version_month") : {"Accuracy": rows};
+      const traces=[];
+      Object.keys(groups).forEach(k=>{
+        const g=by(groups[k],"yearmonth");
+        const ym=ymSort(Object.keys(g));
+        const y=ym.map(m=>{ const arr=(g[m]||[]); const a=arr.map(r=>num(r.accuracy_pct)).filter(v=>v!=null); return a.length? avg(a): null; });
+        if(y.some(v=>v!=null)) traces.push({x:ym,y,name:k,type:"scatter",mode:"lines"});
+      });
+      Plotly.newPlot("c-acc", traces, {margin:{l:40,r:10,t:10,b:40},legend:{orientation:"h"},yaxis:{title:"Accuracy %"},xaxis:{type:"category"}}, {displayModeBar:false,responsive:true});
+    }
+
+    function renderBias(rows){
+      const gb=by(rows,"category");
+      const cats=Object.keys(gb).filter(Boolean);
+      const ys=cats.map(c=>{ const arr=gb[c]; const b=arr.map(r=>num(r.bias_pct)).filter(v=>v!=null); return b.length? avg(b):null; });
+      const X=[],Y=[]; cats.forEach((c,i)=>{ if(ys[i]!=null){X.push(c);Y.push(ys[i]);} });
+      Plotly.newPlot("c-bias", [{x:X,y:Y,type:"bar",marker:{color:"#6B4E3D"}}], {margin:{l:40,r:10,t:10,b:80},xaxis:{tickangle:-30},yaxis:{title:"Bias %"}}, {displayModeBar:false,responsive:true});
+    }
+
+    function renderHeat(rows){
+      const byC=by(rows,"customer");
+      const customers=Object.keys(byC).filter(Boolean).sort();
+      const months=ymSort(rows.map(r=>r.yearmonth).filter(Boolean));
+      const Z=customers.map(c=>{ const g=by(byC[c],"yearmonth"); return months.map(m=>{ const a=(g[m]||[]); const b=a.map(r=>num(r.bias_pct)).filter(v=>v!=null); const v=b.length? avg(b):0; return v==null?0:v; }); });
+      Plotly.newPlot("c-heat", [{z:Z,x:months,y:customers,type:"heatmap",colorscale:"RdBu",reversescale:true,zmid:0,colorbar:{title:"Bias %"}}], {margin:{l:120,r:20,t:10,b:60}}, {displayModeBar:false,responsive:true});
+    }
+
+    function render(){
+      const rows = applyFilters(ST.raw);
+      document.getElementById("dbg").textContent = "Строк: "+rows.length;
+      renderKPIs(rows); renderRev(rows); renderMap(rows); renderAcc(rows); renderBias(rows); renderHeat(rows);
+      setTimeout(()=>{ ['c-rev','c-map','c-acc','c-bias','c-heat'].forEach(id=>{const el=document.getElementById(id); if(el) Plotly.Plots.resize(el);}); }, 50);
+    }
+    function fillFilters(rows){
+      setSel("region",  uniq(rows.map(r=>r.region)), "Region");
+      setSel("country", uniq(rows.map(r=>r.country)), "Country");
+      setSel("customer",uniq(rows.map(r=>r.customer)),"Customer");
+      setSel("category",uniq(rows.map(r=>r.category)),"Category");
+      setSel("brand",   uniq(rows.map(r=>r.brand)), "Brand");
+    }
+
+    (function(){ // throttled resize
+      let t; window.addEventListener('resize', ()=>{ clearTimeout(t); t=setTimeout(()=>{ ['c-rev','c-map','c-acc','c-bias','c-heat'].forEach(id=>{const el=document.getElementById(id); if(el) Plotly.Plots.resize(el);}); }, 120); });
+    })();
+
+    (function init(){
+      fillFilters(ST.raw);
+      render();
+    })();
+  </script>
+</body>
+</html>
